@@ -17,12 +17,12 @@ docker buildx build --build-arg XFR_VERSION=v0.9.12 --platform linux/amd64 -t xf
 # Multi-platform (requires push target)
 docker buildx build --build-arg XFR_VERSION=v0.9.12 --platform linux/amd64,linux/arm64 -t xfr:local .
 
-# Test client mode
+# Smoke test (no server needed)
 docker run --rm xfr:local --version
-docker run --rm xfr:local --no-tui 127.0.0.1
 
-# Test server mode
-docker run --rm -p 5201:5201 xfr:local serve --no-tui
+# Test server+client (two terminals)
+docker run --rm -p 5201:5201/tcp -p 5201:5201/udp xfr:local serve   # terminal 1
+docker run --rm xfr:local 127.0.0.1 --no-tui                        # terminal 2
 ```
 
 `XFR_VERSION` is mandatory — the build errors immediately without it.
