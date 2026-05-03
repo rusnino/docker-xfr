@@ -114,8 +114,8 @@ Configure all three secrets for a registry to enable mirroring. Partial configur
 ## Manual build trigger
 
 ```sh
-gh workflow run build.yml --field version=v0.9.12
-gh workflow run build.yml --field version=v0.9.12 --field force=true
+gh workflow run build.yml --repo rusnino/docker-xfr --field version=v0.9.12
+gh workflow run build.yml --repo rusnino/docker-xfr --field version=v0.9.12 --field force=true
 ```
 
 ## Security
@@ -124,7 +124,7 @@ gh workflow run build.yml --field version=v0.9.12 --field force=true
 - Base images pinned by digest for reproducible builds
 - `curl` present only in the build stage; not in the final image
 - SBOM and provenance attestations attached to every image
-- Pin by digest for production: `ghcr.io/rusnino/xfr@sha256:<digest>`
+- Pin by digest for production: `docker run --rm -it ghcr.io/rusnino/xfr@sha256:<digest> <host>`
 
 ## License
 
