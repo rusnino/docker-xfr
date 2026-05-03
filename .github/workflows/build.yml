@@ -361,11 +361,16 @@ jobs:
             fi
             gh release upload "${VERSION}" digests.txt --repo "${REPO}"
           else
-            # New release
+            # New release.
+            # --latest=false when publish_latest=false (rebuilding old version)
+            # to prevent GitHub from marking this old release as the latest.
+            LATEST_FLAG="--latest=true"
+            [ "${PUBLISH_LATEST}" = "false" ] && LATEST_FLAG="--latest=false"
             gh release create "${VERSION}" digests.txt \
               --repo "${REPO}" \
               --title "xfr ${VERSION}" \
-              --notes "${NOTES}"
+              --notes "${NOTES}" \
+              ${LATEST_FLAG}
           fi
 
       # ── Step summary ──────────────────────────────────────────────────────────
