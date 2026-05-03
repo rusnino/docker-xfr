@@ -50,21 +50,28 @@ RUN set -eux; \
 FROM runtime-${TARGETARCH}
 
 ARG XFR_VERSION
+ARG XFR_UID=10001
+ARG XFR_GID=10001
 
 COPY --from=downloader /tmp/xfr-bin /usr/local/bin/xfr
 COPY LICENSE      /usr/share/licenses/docker-xfr/LICENSE
 COPY LICENSES/    /usr/share/licenses/xfr/
 
-# Run as non-root. Port 5201 is unprivileged so no capabilities needed.
-# Alpine (busybox adduser): adduser -S -H -D
-# Debian (adduser package): adduser --system --no-create-home
+# Run as non-root with stable UID/GID (predictable for k8s/Compose/scanners).
+# Port 5201 is unprivileged — no capabilities needed.
+# Alpine (busybox): addgroup -S / adduser -S
+# Debian slim: groupadd / useradd (from passwd; adduser Perl script not present in slim)
 RUN if [ -f /etc/debian_version ]; then \
-        adduser --system --no-create-home --group xfr; \
+        groupadd --system --gid "${XFR_GID}" xfr && \
+        useradd --system --uid "${XFR_UID}" --gid xfr \
+                --no-create-home --home-dir /nonexistent \
+                --shell /usr/sbin/nologin xfr; \
     else \
-        adduser -S -H -D xfr; \
+        addgroup -S -g "${XFR_GID}" xfr && \
+        adduser  -S -H -D -u "${XFR_UID}" -G xfr xfr; \
     fi
 
-USER xfr
+USER ${XFR_UID}:${XFR_GID}
 
 LABEL org.opencontainers.image.title="xfr" \
       org.opencontainers.image.description="Unofficial container image for xfr – a modern iperf3 alternative with live TUI, multi-client server, MPTCP, and QUIC support" \
