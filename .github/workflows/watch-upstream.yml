@@ -30,8 +30,10 @@ jobs:
     steps:
       - name: Get latest upstream release tag
         id: upstream
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          RAW=$(curl -fsSL -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+          RAW=$(curl -fsSL -H "Authorization: Bearer ${GH_TOKEN}" \
             "https://api.github.com/repos/lance0/xfr/releases/latest" \
             | jq -r '.tag_name')
           [[ "$RAW" == v* ]] && VERSION="$RAW" || VERSION="v${RAW}"

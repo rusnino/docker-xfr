@@ -38,12 +38,14 @@ jobs:
     steps:
       - name: Determine version
         id: get-version
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           INPUT="${{ inputs.version }}"
           if [ -n "$INPUT" ]; then
             RAW_VERSION="$INPUT"
           else
-            RAW_VERSION="$(curl -fsSL -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+            RAW_VERSION="$(curl -fsSL -H "Authorization: Bearer ${GH_TOKEN}" \
               https://api.github.com/repos/lance0/xfr/releases/latest \
               | jq -r '.tag_name')"
           fi
