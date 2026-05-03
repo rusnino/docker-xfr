@@ -73,6 +73,13 @@ RUN if [ -f /etc/debian_version ]; then \
 
 USER ${XFR_UID}:${XFR_GID}
 
+# TUI tools write config/cache/TLS state via $HOME and XDG dirs.
+# /tmp is writable by all users; avoids permission errors with no home dir.
+ENV HOME=/tmp \
+    XDG_CACHE_HOME=/tmp/.cache \
+    XDG_CONFIG_HOME=/tmp/.config
+WORKDIR /tmp
+
 LABEL org.opencontainers.image.title="xfr" \
       org.opencontainers.image.description="Unofficial container image for xfr – a modern iperf3 alternative with live TUI, multi-client server, MPTCP, and QUIC support" \
       org.opencontainers.image.url="https://github.com/lance0/xfr" \
