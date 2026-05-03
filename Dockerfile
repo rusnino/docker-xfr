@@ -55,6 +55,17 @@ COPY --from=downloader /tmp/xfr-bin /usr/local/bin/xfr
 COPY LICENSE      /usr/share/licenses/docker-xfr/LICENSE
 COPY LICENSES/    /usr/share/licenses/xfr/
 
+# Run as non-root. Port 5201 is unprivileged so no capabilities needed.
+# Alpine (busybox adduser): adduser -S -H -D
+# Debian (adduser package): adduser --system --no-create-home
+RUN if [ -f /etc/debian_version ]; then \
+        adduser --system --no-create-home --group xfr; \
+    else \
+        adduser -S -H -D xfr; \
+    fi
+
+USER xfr
+
 LABEL org.opencontainers.image.title="xfr" \
       org.opencontainers.image.description="Unofficial container image for xfr – a modern iperf3 alternative with live TUI, multi-client server, MPTCP, and QUIC support" \
       org.opencontainers.image.url="https://github.com/lance0/xfr" \

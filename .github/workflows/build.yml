@@ -43,7 +43,8 @@ jobs:
           if [ -n "$INPUT" ]; then
             RAW_VERSION="$INPUT"
           else
-            RAW_VERSION="$(curl -fsSL https://api.github.com/repos/lance0/xfr/releases/latest \
+            RAW_VERSION="$(curl -fsSL -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+              https://api.github.com/repos/lance0/xfr/releases/latest \
               | jq -r '.tag_name')"
           fi
           echo "raw_version=${RAW_VERSION}" >> "$GITHUB_OUTPUT"
@@ -328,7 +329,7 @@ jobs:
             echo "# xfr ${VERSION} — Image Digests"
             echo "# Use these to pin the image to an exact, immutable layer set."
             echo "#"
-            echo "# docker run --rm ghcr.io/${OWNER}/xfr@<index-digest> 192.168.1.1"
+            echo "# docker run --rm -it ghcr.io/${OWNER}/xfr@<index-digest> 192.168.1.1"
             echo ""
             echo "multi-platform index  ${INDEX_DIGEST}"
             printf '%s\n' "${PLATFORM_DIGESTS}"
@@ -343,7 +344,7 @@ jobs:
               "${OWNER}" "${VERSION}")"
           fi
 
-          NOTES="$(printf 'This release tracks container image digests for upstream xfr %s. The attached \`digests.txt\` is authoritative for the currently published image.\n\nPackages upstream [xfr %s](https://github.com/lance0/xfr/releases/tag/%s).\n\n## Pull\n\n%s\n\n## Pin by digest (recommended for production)\n\n```sh\ndocker run --rm ghcr.io/%s/xfr@%s 192.168.1.1\n```\n\nFull per-platform digests are in the attached \`digests.txt\`.' \
+          NOTES="$(printf 'This release tracks container image digests for upstream xfr %s. The attached \`digests.txt\` is authoritative for the currently published image.\n\nPackages upstream [xfr %s](https://github.com/lance0/xfr/releases/tag/%s).\n\n## Pull\n\n%s\n\n## Pin by digest (recommended for production)\n\n```sh\ndocker run --rm -it ghcr.io/%s/xfr@%s 192.168.1.1\n```\n\nFull per-platform digests are in the attached \`digests.txt\`.' \
             "${VERSION}" "${VERSION}" "${VERSION}" "${PULL_BLOCK}" "${OWNER}" "${INDEX_DIGEST}")"
 
           if gh release view "${VERSION}" --repo "${REPO}" &>/dev/null; then

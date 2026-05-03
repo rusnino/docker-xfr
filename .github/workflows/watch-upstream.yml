@@ -31,7 +31,8 @@ jobs:
       - name: Get latest upstream release tag
         id: upstream
         run: |
-          RAW=$(curl -fsSL "https://api.github.com/repos/lance0/xfr/releases/latest" \
+          RAW=$(curl -fsSL -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+            "https://api.github.com/repos/lance0/xfr/releases/latest" \
             | jq -r '.tag_name')
           [[ "$RAW" == v* ]] && VERSION="$RAW" || VERSION="v${RAW}"
           VERSION_BARE="${VERSION#v}"

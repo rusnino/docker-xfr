@@ -21,8 +21,9 @@ docker buildx build --build-arg XFR_VERSION=v0.9.12 --platform linux/amd64,linux
 docker run --rm xfr:local --version
 
 # Test server+client (two terminals)
-docker run --rm -p 5201:5201/tcp -p 5201:5201/udp xfr:local serve   # terminal 1
-docker run --rm xfr:local 127.0.0.1 --no-tui                        # terminal 2
+docker run --rm -p 5201:5201/tcp -p 5201:5201/udp xfr:local serve           # terminal 1
+docker run --rm --network host xfr:local 127.0.0.1 --no-tui                 # terminal 2 (Linux)
+# On Docker Desktop: docker run --rm xfr:local host.docker.internal --no-tui
 ```
 
 `XFR_VERSION` is mandatory — the build errors immediately without it.
@@ -32,7 +33,7 @@ docker run --rm xfr:local 127.0.0.1 --no-tui                        # terminal 2
 1. **`runtime-amd64`** — Alpine 3.21 (digest-pinned). Zero-dep base for static musl binary.
 2. **`runtime-arm64`** — Debian bookworm-slim (digest-pinned). glibc base for GNU binary.
 3. **`downloader`** — Runs on `$BUILDPLATFORM` (no QEMU). Fetches the correct release tarball from `lance0/xfr`, verifies SHA256 against upstream `SHA256SUMS`, extracts binary to `/tmp/xfr-bin`.
-4. **Final** — `FROM runtime-${TARGETARCH}`. Copies binary + license files. Exposes port 5201.
+4. **Final** — `FROM runtime-${TARGETARCH}`. Copies binary + license files. Exposes 5201/tcp + 5201/udp.
 
 The downloader stage never runs under QEMU — it always runs native on the build machine. Only the final `COPY` is architecture-aware.
 
