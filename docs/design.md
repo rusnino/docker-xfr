@@ -86,6 +86,8 @@ Codeberg and Quay.io receive images via `docker buildx imagetools create`, which
 
 Each release gets a `digests.txt` asset with the multi-platform index digest and per-platform digests. This allows users to pin images by digest for production deployments. When `build.yml` runs with `force=true` (rebuilt image, new digests), it updates the release notes and replaces `digests.txt` to keep the release authoritative.
 
+Git tag is not moved on forced rebuilds. When a forced rebuild updates an existing release, the GitHub Release notes and `digests.txt` are refreshed, but the Git tag (`vX.Y.Z`) continues to point to the original commit. The release is treated as image metadata for the upstream `xfr` version, not as a source snapshot of this repository. `digests.txt` is the authoritative source of truth for the currently published image.
+
 ## Security practices
 
 - SHA256 verification against upstream-provided checksums before any binary enters the image
