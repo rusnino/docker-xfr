@@ -114,8 +114,17 @@ Configure all three secrets for a registry to enable mirroring. Partial configur
 ## Manual build trigger
 
 ```sh
+# Build a specific version
 gh workflow run build.yml --repo rusnino/docker-xfr --field version=v0.9.12
+
+# Force-rebuild latest version (e.g. after base image update)
 gh workflow run build.yml --repo rusnino/docker-xfr --field version=v0.9.12 --field force=true
+
+# Force-rebuild an old version — publish_latest=false prevents rolling back the latest pointer
+gh workflow run build.yml --repo rusnino/docker-xfr \
+  --field version=v0.9.7 \
+  --field force=true \
+  --field publish_latest=false
 ```
 
 ## Security
