@@ -56,7 +56,7 @@ docker run --rm \
 services:
   xfr-server:
     image: ghcr.io/rusnino/xfr:latest
-    command: serve --no-tui
+    command: ["serve"]
     ports:
       - "5201:5201/tcp"
       - "5201:5201/udp"
