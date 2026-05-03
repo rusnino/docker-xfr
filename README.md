@@ -82,6 +82,8 @@ services:
 | `linux/amd64` | Alpine 3.21 | `xfr-x86_64-unknown-linux-musl` (static) |
 | `linux/arm64` | Debian bookworm-slim | `xfr-aarch64-unknown-linux-gnu` (glibc) |
 
+**MPTCP:** requires host kernel ≥ 5.6 with MPTCP enabled. The container image does not enable or configure MPTCP by itself — it depends entirely on the host kernel and network stack.
+
 ## Update policy
 
 A watcher workflow polls [lance0/xfr releases](https://github.com/lance0/xfr/releases) every 15 minutes. When a new version appears — or any configured registry is missing a tag — a build is triggered automatically. New releases typically appear in registries within 15–20 minutes of the upstream release.
