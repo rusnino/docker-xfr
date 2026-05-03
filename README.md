@@ -129,6 +129,7 @@ gh workflow run build.yml --repo rusnino/docker-xfr \
 
 ## Security
 
+- Final image runs as an unprivileged non-root user (`10001:10001`)
 - Release binaries verified against upstream `SHA256SUMS` before inclusion
 - Base images pinned by digest for reproducible builds
 - `curl` present only in the build stage; not in the final image
