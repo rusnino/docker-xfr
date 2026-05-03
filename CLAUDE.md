@@ -33,9 +33,11 @@ docker run --rm --network host xfr:local 127.0.0.1 --no-tui                 # te
 1. **`runtime-amd64`** — Alpine 3.21 (digest-pinned). Zero-dep base for static musl binary.
 2. **`runtime-arm64`** — Debian bookworm-slim (digest-pinned). glibc base for GNU binary.
 3. **`downloader`** — Runs on `$BUILDPLATFORM` (no QEMU). Fetches the correct release tarball from `lance0/xfr`, verifies SHA256 against upstream `SHA256SUMS`, extracts binary to `/tmp/xfr-bin`.
-4. **Final** — `FROM runtime-${TARGETARCH}`. Copies binary + license files. Exposes 5201/tcp + 5201/udp.
+4. **Final** — `FROM runtime-${TARGETARCH}`. Copies binary + license files, creates a stable non-root runtime user (`10001:10001`), sets writable runtime dirs (`HOME=/tmp`, `XDG_CACHE_HOME=/tmp/.cache`, `XDG_CONFIG_HOME=/tmp/.config`), uses `WORKDIR /tmp`, and exposes 5201/tcp + 5201/udp.
 
 The downloader stage never runs under QEMU — it always runs native on the build machine. Only the final `COPY` is architecture-aware.
+
+The final image intentionally runs as non-root; port 5201 is unprivileged, so no extra capabilities are required for normal TCP/UDP/QUIC operation.
 
 ## CI workflows
 
