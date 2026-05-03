@@ -41,7 +41,7 @@ docker run --rm \
 # TCP only (if you don't need UDP/QUIC)
 docker run --rm -p 5201:5201/tcp ghcr.io/rusnino/xfr serve
 
-# Custom port
+# Custom port (-p sets TCP, UDP, and QUIC on the same port)
 docker run --rm \
   -p 9000:9000/tcp \
   -p 9000:9000/udp \
