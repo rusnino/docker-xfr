@@ -63,7 +63,8 @@ LABEL org.opencontainers.image.title="xfr" \
       org.opencontainers.image.licenses="MIT OR Apache-2.0" \
       org.opencontainers.image.vendor="Unofficial"
 
-# Default server port (overridable via -p flag or XFR_PORT env var)
-EXPOSE 5201
+# TCP: control + data (single-port mode); UDP: UDP test mode; QUIC uses UDP
+EXPOSE 5201/tcp
+EXPOSE 5201/udp
 
 ENTRYPOINT ["xfr"]

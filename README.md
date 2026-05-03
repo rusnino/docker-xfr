@@ -25,15 +25,29 @@ docker run --rm ghcr.io/rusnino/xfr 192.168.1.1 --no-tui      # plain text outpu
 
 ### Server mode
 
+UDP and QUIC both use the UDP socket on port 5201, so publish both protocols:
+
 ```sh
-# Default port 5201
-docker run --rm -p 5201:5201 ghcr.io/rusnino/xfr serve
+# TCP + UDP/QUIC (recommended)
+docker run --rm \
+  -p 5201:5201/tcp \
+  -p 5201:5201/udp \
+  ghcr.io/rusnino/xfr serve
+
+# TCP only (if you don't need UDP/QUIC)
+docker run --rm -p 5201:5201/tcp ghcr.io/rusnino/xfr serve
 
 # Custom port
-docker run --rm -p 9000:9000 ghcr.io/rusnino/xfr serve -p 9000
+docker run --rm \
+  -p 9000:9000/tcp \
+  -p 9000:9000/udp \
+  ghcr.io/rusnino/xfr serve -p 9000
 
 # With PSK authentication
-docker run --rm -p 5201:5201 ghcr.io/rusnino/xfr serve --psk mysecret
+docker run --rm \
+  -p 5201:5201/tcp \
+  -p 5201:5201/udp \
+  ghcr.io/rusnino/xfr serve --psk mysecret
 ```
 
 ### Docker Compose
@@ -44,7 +58,8 @@ services:
     image: ghcr.io/rusnino/xfr:latest
     command: serve --no-tui
     ports:
-      - "5201:5201"
+      - "5201:5201/tcp"
+      - "5201:5201/udp"
     restart: unless-stopped
 ```
 
