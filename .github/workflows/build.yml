@@ -70,14 +70,15 @@ jobs:
       - name: Check if already published in GHCR
         id: check
         env:
-          VERSION: ${{ steps.version.outputs.version }}
-          OWNER:   ${{ github.repository_owner }}
+          VERSION:    ${{ steps.version.outputs.version }}
+          OWNER:      ${{ github.repository_owner }}
+          GH_TOKEN:   ${{ secrets.GITHUB_TOKEN }}
         run: |
           # Exchange GITHUB_TOKEN for a short-lived GHCR pull token.
           # If this fails (network issue, new repo not yet visible) we default
           # to "not published" so the build always proceeds safely.
           GHCR_TOKEN=$(curl -sf \
-            -u "${OWNER}:${{ secrets.GITHUB_TOKEN }}" \
+            -u "${OWNER}:${GH_TOKEN}" \
             "https://ghcr.io/token?service=ghcr.io&scope=repository:${OWNER}/xfr:pull" \
             | jq -r '.token' || echo "")
 
@@ -350,8 +351,12 @@ jobs:
             "${VERSION}" "${VERSION}" "${VERSION}" "${PULL_BLOCK}" "${OWNER}" "${INDEX_DIGEST}")"
 
           if gh release view "${VERSION}" --repo "${REPO}" &>/dev/null; then
-            # Release exists — update notes and replace digests.txt asset
-            gh release edit "${VERSION}" --repo "${REPO}" --notes "${NOTES}"
+            # Release exists — update notes and replace digests.txt asset.
+            # Pass --latest flag in case this release is currently marked latest
+            # but we're rebuilding an old version with publish_latest=false.
+            LATEST_FLAG="--latest=true"
+            [ "${PUBLISH_LATEST}" = "false" ] && LATEST_FLAG="--latest=false"
+            gh release edit "${VERSION}" --repo "${REPO}" --notes "${NOTES}" "${LATEST_FLAG}"
 
             # Delete the old digests.txt asset (if present) and upload fresh one
             ASSET_ID=$(gh api "repos/${REPO}/releases/tags/${VERSION}" \
@@ -370,7 +375,7 @@ jobs:
               --repo "${REPO}" \
               --title "xfr ${VERSION}" \
               --notes "${NOTES}" \
-              ${LATEST_FLAG}
+              "${LATEST_FLAG}"
           fi
 
       # ── Step summary ──────────────────────────────────────────────────────────

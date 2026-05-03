@@ -56,9 +56,10 @@ jobs:
           VERSION:      ${{ steps.upstream.outputs.version }}
           VERSION_BARE: ${{ steps.upstream.outputs.version_bare }}
           OWNER:        ${{ github.repository_owner }}
+          GH_TOKEN:     ${{ secrets.GITHUB_TOKEN }}
         run: |
           GHCR_TOKEN=$(curl -sf \
-            -u "${OWNER}:${{ secrets.GITHUB_TOKEN }}" \
+            -u "${OWNER}:${GH_TOKEN}" \
             "https://ghcr.io/token?service=ghcr.io&scope=repository:${OWNER}/xfr:pull" \
             | jq -r '.token' || echo "")
 
