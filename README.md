@@ -16,11 +16,15 @@ Unofficial multi-platform container images for [xfr](https://github.com/lance0/x
 ### Client mode
 
 ```sh
-docker run --rm ghcr.io/rusnino/xfr 192.168.1.1
-docker run --rm ghcr.io/rusnino/xfr 192.168.1.1 -t 30s -P 4
-docker run --rm ghcr.io/rusnino/xfr 192.168.1.1 -u -b 500M   # UDP
-docker run --rm ghcr.io/rusnino/xfr 192.168.1.1 --quic        # QUIC/TLS 1.3
-docker run --rm ghcr.io/rusnino/xfr 192.168.1.1 --no-tui      # plain text output
+# Interactive terminal — live TUI with real-time graphs
+docker run --rm -it ghcr.io/rusnino/xfr 192.168.1.1
+docker run --rm -it ghcr.io/rusnino/xfr 192.168.1.1 -t 30s -P 4
+docker run --rm -it ghcr.io/rusnino/xfr 192.168.1.1 -u -b 500M   # UDP
+docker run --rm -it ghcr.io/rusnino/xfr 192.168.1.1 --quic        # QUIC/TLS 1.3
+
+# Non-interactive / CI — plain text output
+docker run --rm ghcr.io/rusnino/xfr 192.168.1.1 --no-tui
+docker run --rm ghcr.io/rusnino/xfr 192.168.1.1 --no-tui --json   # JSON output
 ```
 
 ### Server mode
