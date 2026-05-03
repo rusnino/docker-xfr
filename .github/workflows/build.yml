@@ -354,9 +354,11 @@ jobs:
             # Release exists — update notes and replace digests.txt asset.
             # Pass --latest flag in case this release is currently marked latest
             # but we're rebuilding an old version with publish_latest=false.
-            LATEST_FLAG="--latest=true"
-            [ "${PUBLISH_LATEST}" = "false" ] && LATEST_FLAG="--latest=false"
-            gh release edit "${VERSION}" --repo "${REPO}" --notes "${NOTES}" "${LATEST_FLAG}"
+            if [ "${PUBLISH_LATEST}" = "false" ]; then
+              gh release edit "${VERSION}" --repo "${REPO}" --notes "${NOTES}" --latest=false
+            else
+              gh release edit "${VERSION}" --repo "${REPO}" --notes "${NOTES}" --latest=true
+            fi
 
             # Delete the old digests.txt asset (if present) and upload fresh one
             ASSET_ID=$(gh api "repos/${REPO}/releases/tags/${VERSION}" \
@@ -369,13 +371,19 @@ jobs:
             # New release.
             # --latest=false when publish_latest=false (rebuilding old version)
             # to prevent GitHub from marking this old release as the latest.
-            LATEST_FLAG="--latest=true"
-            [ "${PUBLISH_LATEST}" = "false" ] && LATEST_FLAG="--latest=false"
-            gh release create "${VERSION}" digests.txt \
-              --repo "${REPO}" \
-              --title "xfr ${VERSION}" \
-              --notes "${NOTES}" \
-              "${LATEST_FLAG}"
+            if [ "${PUBLISH_LATEST}" = "false" ]; then
+              gh release create "${VERSION}" digests.txt \
+                --repo "${REPO}" \
+                --title "xfr ${VERSION}" \
+                --notes "${NOTES}" \
+                --latest=false
+            else
+              gh release create "${VERSION}" digests.txt \
+                --repo "${REPO}" \
+                --title "xfr ${VERSION}" \
+                --notes "${NOTES}" \
+                --latest=true
+            fi
           fi
 
       # ── Step summary ──────────────────────────────────────────────────────────
