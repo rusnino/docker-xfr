@@ -1,0 +1,425 @@
+name: Build and Push
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'xfr version to build. Use the v-prefix (e.g. v0.9.12) to match the concurrency group; bare versions (0.9.12) are normalized internally but treated as a separate group. Leave empty to use latest upstream release.'
+        required: false
+        default: ''
+      force:
+        description: 'Rebuild even if the version is already published (true = forced rebuild, false = idempotent).'
+        required: false
+        default: 'false'
+      publish_latest:
+        description: 'Push the latest tag. Set to false when rebuilding an old version to avoid rolling back latest.'
+        required: false
+        default: 'true'
+
+concurrency:
+  # Group uses the raw input, before v-prefix normalisation happens inside the workflow.
+  # Prefer v-prefixed input (v0.9.12) to avoid splitting groups with bare versions (0.9.12).
+  group: xfr-build-${{ inputs.version || 'latest' }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write  # needed to create GitHub Releases
+  packages: write  # needed for ghcr.io push
+
+jobs:
+  # ── Job 1: resolve version and check whether it is already published ────────
+  check-version:
+    runs-on: ubuntu-latest
+    outputs:
+      version:           ${{ steps.version.outputs.version }}
+      version_bare:      ${{ steps.version.outputs.version_bare }}
+      already_published: ${{ steps.check.outputs.already_published }}
+
+    steps:
+      - name: Determine version
+        id: get-version
+        run: |
+          INPUT="${{ inputs.version }}"
+          if [ -n "$INPUT" ]; then
+            RAW_VERSION="$INPUT"
+          else
+            RAW_VERSION="$(curl -fsSL https://api.github.com/repos/lance0/xfr/releases/latest \
+              | jq -r '.tag_name')"
+          fi
+          echo "raw_version=${RAW_VERSION}" >> "$GITHUB_OUTPUT"
+
+      - name: Normalize and validate version
+        id: version
+        run: |
+          RAW="${{ steps.get-version.outputs.raw_version }}"
+          # Ensure v-prefix (v0.9.12)
+          [[ "$RAW" == v* ]] && VERSION="$RAW" || VERSION="v${RAW}"
+          # Validate: must be vX.Y.Z with optional pre-release suffix
+          if ! [[ "$VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+([.-].*)?$ ]]; then
+            echo "ERROR: invalid version format '${VERSION}' (expected vX.Y.Z)" >&2
+            exit 1
+          fi
+          # Bare version without v prefix (0.9.12)
+          VERSION_BARE="${VERSION#v}"
+          echo "version=${VERSION}"           >> "$GITHUB_OUTPUT"
+          echo "version_bare=${VERSION_BARE}" >> "$GITHUB_OUTPUT"
+
+      - name: Check if already published in GHCR
+        id: check
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          OWNER:   ${{ github.repository_owner }}
+        run: |
+          # Exchange GITHUB_TOKEN for a short-lived GHCR pull token.
+          # If this fails (network issue, new repo not yet visible) we default
+          # to "not published" so the build always proceeds safely.
+          GHCR_TOKEN=$(curl -sf \
+            -u "${OWNER}:${{ secrets.GITHUB_TOKEN }}" \
+            "https://ghcr.io/token?service=ghcr.io&scope=repository:${OWNER}/xfr:pull" \
+            | jq -r '.token' || echo "")
+
+          if [ -z "$GHCR_TOKEN" ]; then
+            echo "Could not obtain GHCR token — assuming not published"
+            echo "already_published=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          HTTP=$(curl -sf -o /dev/null -w "%{http_code}" \
+            -H "Authorization: Bearer ${GHCR_TOKEN}" \
+            -H "Accept: application/vnd.oci.image.index.v1+json,application/vnd.docker.distribution.manifest.list.v2+json" \
+            "https://ghcr.io/v2/${OWNER}/xfr/manifests/${VERSION}" \
+            || echo "000")
+
+          if [ "$HTTP" = "200" ]; then
+            echo "Image ${VERSION} already exists in GHCR — skipping scheduled build"
+            echo "already_published=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "Image ${VERSION} not found in GHCR (HTTP ${HTTP}) — will build"
+            echo "already_published=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  # ── Job 2: skip summary (runs when build-and-push is skipped) ───────────────
+  skip-summary:
+    needs: check-version
+    if: >-
+      needs.check-version.outputs.already_published == 'true' &&
+      inputs.force != 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Write skip summary
+        env:
+          VERSION: ${{ needs.check-version.outputs.version }}
+        run: |
+          cat >> "$GITHUB_STEP_SUMMARY" <<EOF
+          ## xfr ${VERSION} — Skipped
+
+          GHCR versioned tag \`${VERSION}\` is already present.
+
+          \`build.yml\` checks only GHCR's versioned tag on manual runs — it does not
+          verify bare tags or mirror registries. The watcher handles full registry
+          reconciliation automatically every 15 minutes.
+
+          To republish all configured tags and mirrors, re-run with \`force=true\`.
+          EOF
+
+  # ── Job 3: build and push ────────────────────────────────────────────────────
+  # Runs when the version is not yet published, OR when force=true.
+  # The watcher passes force=false when GHCR's versioned tag (vX.Y.Z) is missing,
+  # and force=true when GHCR has vX.Y.Z but a bare/latest tag or another registry
+  # is missing. Manual UI triggers default to force=false.
+  build-and-push:
+    needs: check-version
+    if: >-
+      needs.check-version.outputs.already_published != 'true' ||
+      inputs.force == 'true'
+    runs-on: ubuntu-latest
+    # secrets context is not available in step-level if: conditions.
+    # Map secret presence to plain env booleans, which ARE allowed in step if:.
+    # Criteria match watch-upstream.yml: all three secrets must be set.
+    env:
+      HAS_CODEBERG: ${{ secrets.CODEBERG_NAMESPACE != '' && secrets.CODEBERG_USERNAME != '' && secrets.CODEBERG_TOKEN != '' }}
+      HAS_QUAY:     ${{ secrets.QUAY_NAMESPACE != '' && secrets.QUAY_USERNAME != '' && secrets.QUAY_TOKEN != '' }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      # ── Validate required secrets ─────────────────────────────────────────
+      - name: Validate required secrets
+        run: |
+          [ -n "${{ secrets.DOCKERHUB_USERNAME }}"  ] || { echo "ERROR: DOCKERHUB_USERNAME is not set"  >&2; exit 1; }
+          [ -n "${{ secrets.DOCKERHUB_TOKEN }}"     ] || { echo "ERROR: DOCKERHUB_TOKEN is not set"     >&2; exit 1; }
+          [ -n "${{ secrets.DOCKERHUB_NAMESPACE }}" ] || { echo "ERROR: DOCKERHUB_NAMESPACE is not set" >&2; exit 1; }
+
+      # ── Registry logins ───────────────────────────────────────────────────
+
+      # Required: Docker Hub (primary source for imagetools mirrors)
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      # Required: GHCR — uses the automatic GITHUB_TOKEN
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.repository_owner }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # Optional: Codeberg — step is skipped entirely when secret is not set.
+      # If the secret is set but auth fails, the error is recorded but the
+      # workflow continues; the Codeberg push step checks the outcome.
+      - name: Log in to Codeberg
+        id: codeberg-login
+        if: ${{ env.HAS_CODEBERG == 'true' }}
+        continue-on-error: true
+        uses: docker/login-action@v3
+        with:
+          registry: codeberg.org
+          username: ${{ secrets.CODEBERG_USERNAME }}
+          password: ${{ secrets.CODEBERG_TOKEN }}
+
+      # Optional: Quay.io — same skip/continue-on-error pattern as Codeberg.
+      # Use a robot account: username format is "namespace+robotname".
+      - name: Log in to Quay.io
+        id: quay-login
+        if: ${{ env.HAS_QUAY == 'true' }}
+        continue-on-error: true
+        uses: docker/login-action@v3
+        with:
+          registry: quay.io
+          username: ${{ secrets.QUAY_USERNAME }}
+          password: ${{ secrets.QUAY_TOKEN }}
+
+      # ── Build & push to primary registries (Docker Hub + GHCR) ───────────
+
+      # Compute the full tag list for Docker Hub and GHCR.
+      # latest is included only when publish_latest=true to prevent accidental
+      # rollback when force-rebuilding an old version.
+      - name: Compute image tags
+        id: tags
+        env:
+          VERSION:        ${{ needs.check-version.outputs.version }}
+          VERSION_BARE:   ${{ needs.check-version.outputs.version_bare }}
+          DOCKERHUB_NS:   ${{ secrets.DOCKERHUB_NAMESPACE }}
+          OWNER:          ${{ github.repository_owner }}
+          PUBLISH_LATEST: ${{ inputs.publish_latest }}
+        run: |
+          TAGS=(
+            "docker.io/${DOCKERHUB_NS}/xfr:${VERSION}"
+            "docker.io/${DOCKERHUB_NS}/xfr:${VERSION_BARE}"
+            "ghcr.io/${OWNER}/xfr:${VERSION}"
+            "ghcr.io/${OWNER}/xfr:${VERSION_BARE}"
+          )
+          if [ "${PUBLISH_LATEST}" = "true" ]; then
+            TAGS+=(
+              "docker.io/${DOCKERHUB_NS}/xfr:latest"
+              "ghcr.io/${OWNER}/xfr:latest"
+            )
+          fi
+          {
+            echo "tags<<EOF"
+            printf '%s\n' "${TAGS[@]}"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Extract metadata (labels)
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: |
+            docker.io/${{ secrets.DOCKERHUB_NAMESPACE }}/xfr
+            ghcr.io/${{ github.repository_owner }}/xfr
+          labels: |
+            org.opencontainers.image.title=xfr
+            org.opencontainers.image.description=Unofficial container image for xfr — a modern iperf3 alternative with live TUI, multi-client server, MPTCP, and QUIC support
+            org.opencontainers.image.url=https://github.com/lance0/xfr
+            org.opencontainers.image.licenses=MIT OR Apache-2.0
+            org.opencontainers.image.vendor=Unofficial
+
+      - name: Build and push to Docker Hub and GHCR
+        id: build-push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.tags.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            XFR_VERSION=${{ needs.check-version.outputs.version }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          sbom: true
+          provenance: true
+
+      # ── Mirror to optional registries via imagetools (no rebuild) ─────────
+      # imagetools create copies the multi-platform manifest + layers from
+      # Docker Hub to the target registry without a full rebuild.
+
+      - name: Push to Codeberg
+        id: push-codeberg
+        if: ${{ steps.codeberg-login.outcome == 'success' }}
+        continue-on-error: true
+        env:
+          VERSION:        ${{ needs.check-version.outputs.version }}
+          VERSION_BARE:   ${{ needs.check-version.outputs.version_bare }}
+          DOCKERHUB_NS:   ${{ secrets.DOCKERHUB_NAMESPACE }}
+          CODEBERG_NS:    ${{ secrets.CODEBERG_NAMESPACE }}
+          PUBLISH_LATEST: ${{ inputs.publish_latest }}
+        run: |
+          SOURCE="docker.io/${DOCKERHUB_NS}/xfr:${VERSION}"
+          TARGET="codeberg.org/${CODEBERG_NS}/xfr"
+          ARGS=(
+            --tag "${TARGET}:${VERSION}"
+            --tag "${TARGET}:${VERSION_BARE}"
+          )
+          [ "${PUBLISH_LATEST}" = "true" ] && ARGS+=(--tag "${TARGET}:latest")
+          docker buildx imagetools create "${ARGS[@]}" "${SOURCE}"
+
+      - name: Push to Quay.io
+        id: push-quay
+        if: ${{ steps.quay-login.outcome == 'success' }}
+        continue-on-error: true
+        env:
+          VERSION:        ${{ needs.check-version.outputs.version }}
+          VERSION_BARE:   ${{ needs.check-version.outputs.version_bare }}
+          DOCKERHUB_NS:   ${{ secrets.DOCKERHUB_NAMESPACE }}
+          QUAY_NS:        ${{ secrets.QUAY_NAMESPACE }}
+          PUBLISH_LATEST: ${{ inputs.publish_latest }}
+        run: |
+          SOURCE="docker.io/${DOCKERHUB_NS}/xfr:${VERSION}"
+          TARGET="quay.io/${QUAY_NS}/xfr"
+          ARGS=(
+            --tag "${TARGET}:${VERSION}"
+            --tag "${TARGET}:${VERSION_BARE}"
+          )
+          [ "${PUBLISH_LATEST}" = "true" ] && ARGS+=(--tag "${TARGET}:latest")
+          docker buildx imagetools create "${ARGS[@]}" "${SOURCE}"
+
+      # ── GitHub Release ───────────────────────────────────────────────────────
+      # Created for new versions and updated for forced rebuilds (new digests).
+      - name: Create or update GitHub Release
+        id: github-release
+        env:
+          GH_TOKEN:       ${{ secrets.GITHUB_TOKEN }}
+          VERSION:        ${{ needs.check-version.outputs.version }}
+          OWNER:          ${{ github.repository_owner }}
+          PUBLISH_LATEST: ${{ inputs.publish_latest }}
+          REPO:           ${{ github.repository }}
+        run: |
+          # Collect per-platform and index digests from GHCR
+          INDEX_DIGEST=$(docker buildx imagetools inspect \
+            "ghcr.io/${OWNER}/xfr:${VERSION}" \
+            --format '{{json .Manifest}}' | jq -r '.digest')
+
+          PLATFORM_DIGESTS=$(docker buildx imagetools inspect \
+            "ghcr.io/${OWNER}/xfr:${VERSION}" \
+            --format '{{range .Manifest.Manifests}}{{.Platform.OS}}/{{.Platform.Architecture}}  {{.Digest}}{{"\n"}}{{end}}')
+
+          {
+            echo "# xfr ${VERSION} — Image Digests"
+            echo "# Use these to pin the image to an exact, immutable layer set."
+            echo "#"
+            echo "# docker run --rm ghcr.io/${OWNER}/xfr@<index-digest> 192.168.1.1"
+            echo ""
+            echo "multi-platform index  ${INDEX_DIGEST}"
+            printf '%s\n' "${PLATFORM_DIGESTS}"
+          } > digests.txt
+
+          # Build pull section — omit latest if publish_latest=false
+          if [ "${PUBLISH_LATEST}" = "true" ]; then
+            PULL_BLOCK="$(printf '```sh\ndocker pull ghcr.io/%s/xfr:%s\ndocker pull ghcr.io/%s/xfr:latest\n```' \
+              "${OWNER}" "${VERSION}" "${OWNER}")"
+          else
+            PULL_BLOCK="$(printf '```sh\ndocker pull ghcr.io/%s/xfr:%s\n```\n> \`latest\` was not updated in this build.' \
+              "${OWNER}" "${VERSION}")"
+          fi
+
+          NOTES="$(printf 'This release tracks container image digests for upstream xfr %s. The attached \`digests.txt\` is authoritative for the currently published image.\n\nPackages upstream [xfr %s](https://github.com/lance0/xfr/releases/tag/%s).\n\n## Pull\n\n%s\n\n## Pin by digest (recommended for production)\n\n```sh\ndocker run --rm ghcr.io/%s/xfr@%s 192.168.1.1\n```\n\nFull per-platform digests are in the attached \`digests.txt\`.' \
+            "${VERSION}" "${VERSION}" "${VERSION}" "${PULL_BLOCK}" "${OWNER}" "${INDEX_DIGEST}")"
+
+          if gh release view "${VERSION}" --repo "${REPO}" &>/dev/null; then
+            # Release exists — update notes and replace digests.txt asset
+            gh release edit "${VERSION}" --repo "${REPO}" --notes "${NOTES}"
+
+            # Delete the old digests.txt asset (if present) and upload fresh one
+            ASSET_ID=$(gh api "repos/${REPO}/releases/tags/${VERSION}" \
+              --jq '.assets[] | select(.name=="digests.txt") | .id')
+            if [ -n "$ASSET_ID" ]; then
+              gh api --method DELETE "repos/${REPO}/releases/assets/${ASSET_ID}"
+            fi
+            gh release upload "${VERSION}" digests.txt --repo "${REPO}"
+          else
+            # New release
+            gh release create "${VERSION}" digests.txt \
+              --repo "${REPO}" \
+              --title "xfr ${VERSION}" \
+              --notes "${NOTES}"
+          fi
+
+      # ── Step summary ──────────────────────────────────────────────────────────
+      - name: Write build summary
+        if: always()
+        env:
+          VERSION:        ${{ needs.check-version.outputs.version }}
+          VERSION_BARE:   ${{ needs.check-version.outputs.version_bare }}
+          FORCE:          ${{ inputs.force }}
+          PUBLISH_LATEST: ${{ inputs.publish_latest }}
+          PRIMARY:        ${{ steps.build-push.outcome }}
+          CODEBERG_LOGIN: ${{ steps.codeberg-login.outcome }}
+          CODEBERG_PUSH:  ${{ steps.push-codeberg.outcome }}
+          QUAY_LOGIN:     ${{ steps.quay-login.outcome }}
+          QUAY_PUSH:      ${{ steps.push-quay.outcome }}
+          RELEASE:        ${{ steps.github-release.outcome }}
+        run: |
+          outcome_icon() {
+            case "$1" in
+              success) echo "✅ success" ;;
+              failure) echo "❌ failure" ;;
+              skipped) echo "⏭️ not configured" ;;
+              *)       echo "⚪ $1" ;;
+            esac
+          }
+
+          # For optional registries, show the push outcome when login succeeded,
+          # the login outcome when login failed, or "not configured" when skipped.
+          optional_outcome() {
+            local login="$1" push="$2"
+            if [ "$login" = "skipped" ]; then
+              echo "⏭️ not configured"
+            elif [ "$login" = "failure" ]; then
+              echo "❌ login failed"
+            else
+              outcome_icon "$push"
+            fi
+          }
+
+          if [ "${PUBLISH_LATEST}" = "true" ]; then
+            TAGS="\`${VERSION}\` · \`${VERSION_BARE}\` · \`latest\`"
+          else
+            TAGS="\`${VERSION}\` · \`${VERSION_BARE}\` _(latest not published)_"
+          fi
+          FORCED="${FORCE:-false}"
+
+          cat >> "$GITHUB_STEP_SUMMARY" <<EOF
+          ## xfr ${VERSION} — Build Summary
+
+          **Tags:** ${TAGS}
+          **Forced rebuild:** \`${FORCED}\`
+
+          | Registry   | Status |
+          |------------|--------|
+          | Docker Hub     | $(outcome_icon "$PRIMARY") |
+          | GHCR           | $(outcome_icon "$PRIMARY") |
+          | Codeberg       | $(optional_outcome "$CODEBERG_LOGIN" "$CODEBERG_PUSH") |
+          | Quay.io        | $(optional_outcome "$QUAY_LOGIN" "$QUAY_PUSH") |
+          | GitHub Release | $(outcome_icon "$RELEASE") |
+          EOF
