@@ -1,3 +1,5 @@
+[![Build and Push](https://github.com/rusnino/docker-xfr/actions/workflows/build.yml/badge.svg)](https://github.com/rusnino/docker-xfr/actions/workflows/build.yml)
+
 # docker-xfr
 
 Unofficial multi-platform container images for [xfr](https://github.com/lance0/xfr) — a modern iperf3 alternative with a live TUI, multi-client server, MPTCP, and QUIC support. Built in Rust.
